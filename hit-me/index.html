@@ -1,0 +1,165 @@
+<html>
+<head>
+
+	<style>
+
+		body {
+			margin: 0px;
+			padding: 0px;
+		}
+
+	</style>
+
+	<script src="requestAnimFrame.js"></script>
+	<script src="socket.io.min.js"></script>
+
+</head>
+<body>
+
+	<canvas id="myCanvas"></canvas>
+
+	<script>
+
+		var canvas = document.getElementById("myCanvas");
+		var context = canvas.getContext("2d");
+		var socket = io.connect("http://localhost:8000");
+
+		var kSPACE_KEY = 32;
+		var screenColor = "#00FFFF";
+		var defaultUsername = "Anonymous";
+		var skipUsername = false;
+		var username = !skipUsername&&prompt("Enter username:") || defaultUsername;
+
+		var players = {};
+		var playerCount = 0;
+
+		function Player (id) {
+			this.id = id;
+			players[id] = this;
+			this.lastScoreWin = +new Date ();
+		}
+		Player.prototype = {
+
+			score : 0,
+			username : defaultUsername,
+			color : "#000000",
+
+			updateWithData : function (data) {
+
+				var oldScore = this.score;
+				if (data.score !== undefined) this.score = data.score;
+				if (data.username !== undefined) this.username = data.username;
+				if (data.color !== undefined) this.color = data.color;
+
+				if (this.score > oldScore) this.lastScoreWin = +new Date ();
+
+			}
+
+		}
+
+		function render (ctx) {
+
+			// Render screen with color
+			ctx.fillStyle = screenColor;
+			ctx.textBaseline = "top";
+			ctx.fillRect(0,0,canvas.width,canvas.height);
+
+			ctx.save();
+			ctx.translate(10,10);
+
+			// Render scores
+			ctx.fillStyle = "#DDDDDD";
+			ctx.globalAlpha = 0.9;
+			ctx.fillRect(0,0, 200, 20+29*playerCount);
+			ctx.globalAlpha = 1;
+
+			var textY = 15;
+			ctx.font = "15px Helvetica";
+			
+			var now = +new Date ();
+
+			for (var playerId in players) {
+
+				textY += 2;
+				var player = players[playerId];
+				var msg = player.username+" has "+player.score+" points";
+
+				ctx.fillStyle = player.color;
+				ctx.fillRect(10,textY-5,10,25);
+
+				var diff = now - player.lastScoreWin;
+				if (diff < 500) {
+					var opacity = 1 - diff/500;
+					ctx.globalAlpha = opacity;
+					ctx.fillRect(0,textY-5,200,25);
+					ctx.globalAlpha = 1;
+				}
+
+				ctx.fillStyle = "#000000";
+				ctx.fillText(msg, 30, textY);
+				textY += 25;
+				textY += 2;
+
+			}
+
+			ctx.restore();
+
+		}
+
+		function mainLoop () {
+			requestAnimFrame(mainLoop);
+			render(context);
+		}
+		requestAnimFrame(mainLoop);
+
+		window.onresize = function () {
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+			render(context);
+		}
+		window.onresize();
+
+		var spaceKeyIsDown = false;
+		document.addEventListener("keydown", function (e) {
+			if (e.keyCode == kSPACE_KEY) {
+				if (!spaceKeyIsDown) socket.emit("hit");
+				spaceKeyIsDown = true;
+			}
+		});
+		document.addEventListener("keyup", function (e) {
+			if (e.keyCode == kSPACE_KEY) spaceKeyIsDown = false;
+		});
+
+		socket.on('connect', function () {
+			console.log("Sending username!");
+			socket.emit('myUsername', username);
+		});
+
+		socket.on("playerUpdate", function (playerData) {
+
+			console.log(playerData);
+
+			var player = players[playerData.id];
+
+			if (player === undefined) {
+				player = new Player (playerData.id);
+				++playerCount;
+			}
+
+			player.updateWithData(playerData);
+
+		});
+
+		socket.on('screenUpdate', function (data) {
+			if (data.screenColor !== undefined) screenColor = data.screenColor;
+		});
+
+		socket.on("playerDisconnect", function (id) {
+			delete players[id];
+			--playerCount;
+		});
+
+	</script>
+
+</body>
+</html>
